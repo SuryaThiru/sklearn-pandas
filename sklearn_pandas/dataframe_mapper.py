@@ -382,37 +382,45 @@ class DataFrameMapper(BaseEstimator, TransformerMixin):
         # were created from which input columns, so it's
         # assumed that that doesn't matter to the model.
 
-        # If any of the extracted features is sparse, combine sparsely.
-        # Otherwise, combine as normal arrays.
-        if any(sparse.issparse(fea) for fea in extracted):
-            stacked = sparse.hstack(extracted).tocsr()
-            # return a sparse matrix only if the mapper was initialized
-            # with sparse=True
-            if not self.sparse:
-                stacked = stacked.toarray()
-        else:
-            stacked = np.hstack(extracted)
-
         if self.df_out:
             # if no rows were dropped preserve the original index,
             # otherwise use a new integer one
-            no_rows_dropped = len(X) == len(stacked)
+            no_rows_dropped = all([len(X) == fea.shape[0] for fea in extracted])
             if no_rows_dropped:
                 index = X.index
             else:
                 index = None
 
             # output different data types, if appropriate
+            expanded_extracted = []
+            for ext in extracted:
+                if not self.sparse and sparse.issparse(ext):
+                    ext = ext.toarray()
+                if isinstance(ext, pd.DataFrame):
+                    expanded_extracted.extend([ext.iloc[:,i] for i in range(ext.shape[1])])
+                else:
+                    expanded_extracted.extend([ext[:,i] for i in range(ext.shape[1])])
+
             dtypes = self.get_dtypes(extracted)
             df_out = pd.DataFrame(
-                stacked,
-                columns=self.transformed_names_,
+                {col: arr for arr, col in zip(expanded_extracted, self.transformed_names_)},
                 index=index)
+
             # preserve types
             for col, dtype in zip(self.transformed_names_, dtypes):
                 df_out[col] = df_out[col].astype(dtype)
             return df_out
         else:
+            # If any of the extracted features is sparse, combine sparsely.
+            # Otherwise, combine as normal arrays.
+            if any(sparse.issparse(fea) for fea in extracted):
+                stacked = sparse.hstack(extracted).tocsr()
+                # return a sparse matrix only if the mapper was initialized
+                # with sparse=True
+                if not self.sparse:
+                    stacked = stacked.toarray()
+            else:
+                stacked = np.hstack(extracted)
             return stacked
 
     def transform(self, X):
